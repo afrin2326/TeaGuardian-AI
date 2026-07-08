@@ -1,13 +1,15 @@
----
-title: TeaGuardian Project
-emoji: 🏢
-colorFrom: pink
-colorTo: indigo
-sdk: gradio
-sdk_version: 6.20.0
-python_version: '3.12'
-app_file: app.py
-pinned: false
----
+# 🍃 TeaGuardian AI
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+AI-powered tea leaf quality analysis and disease detection system.
+
+## Features
+- 🍃 Quality Grading (T1-T4)
+- 🦠 Disease Detection (7 classes)
+- ⏰ Plucking Recommendations
+- 📊 Real-time Analysis
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+streamlit run app/app.py
