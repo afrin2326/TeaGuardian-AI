@@ -1,5 +1,5 @@
 # ============================================================
-# TeaGuardian - Main Application
+# app.py - TeaGuardian Main Application
 # ============================================================
 import streamlit as st
 from PIL import Image
@@ -8,6 +8,9 @@ import plotly.express as px
 import time
 import os
 import pandas as pd
+import numpy as np
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+import av
 
 from utils import (
     load_models,
@@ -18,7 +21,9 @@ from utils import (
     get_quality_score,
     get_color,
     AGE_CLASSES,
-    DISEASE_CLASSES
+    DISEASE_CLASSES,
+    CONFIDENCE_THRESHOLD,
+    is_tea_leaf
 )
 
 # ============================================================
@@ -128,14 +133,34 @@ with tab1:
             help="Upload a clear image of a tea leaf"
         )
         
-        # Camera Input (Click to open, not auto-open)
-        camera_image = st.camera_input(
-            "📷 Or take a photo",
-            help="Click to open camera"
-        )
+        # ============================================================
+        # CAMERA WITH ON/OFF CONTROL
+        # ============================================================
+        st.markdown("### 📷 Camera")
         
-        if camera_image:
-            uploaded_file = camera_image
+        # Camera state
+        if 'camera_on' not in st.session_state:
+            st.session_state.camera_on = False
+        
+        # Camera toggle button
+        col_cam1, col_cam2 = st.columns(2)
+        with col_cam1:
+            if st.button("📷 Start Camera", type="primary" if not st.session_state.camera_on else "secondary"):
+                st.session_state.camera_on = True
+        with col_cam2:
+            if st.button("⏹️ Stop Camera", type="primary" if st.session_state.camera_on else "secondary"):
+                st.session_state.camera_on = False
+        
+        # Camera display
+        if st.session_state.camera_on:
+            camera_image = st.camera_input(
+                "📷 Take a photo",
+                help="Click to capture image from camera"
+            )
+            if camera_image:
+                uploaded_file = camera_image
+        else:
+            st.info("👆 Click 'Start Camera' to enable camera")
         
         # Analysis Type
         analysis_type = st.radio(
@@ -158,6 +183,17 @@ with tab1:
                     
                     img_array = preprocess_image(img)
                     st.markdown('<div class="result-card">', unsafe_allow_html=True)
+                    
+                    # ============================================================
+                    # TEA LEAF VALIDATION CHECK
+                    # ============================================================
+                    is_leaf, leaf_confidence = is_tea_leaf(img_array)
+                    
+                    if not is_leaf:
+                        st.warning(f"⚠️ This doesn't appear to be a tea leaf image (Confidence: {leaf_confidence:.1f}%)")
+                        st.info("📋 Please upload a clear image of a tea leaf for accurate analysis.")
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        st.stop()
                     
                     # ============================================================
                     # AGE ANALYSIS
@@ -230,28 +266,49 @@ with tab1:
                         if disease_model is not None:
                             disease_class, disease_conf = predict_disease(disease_model, img_array)
                             
-                            color = "#28a745" if "Healthy" in disease_class else "#dc3545"
-                            emoji = "🌿" if "Healthy" in disease_class else "🦠"
-                            
-                            st.markdown(f"""
-                            <div style="background: {color}; padding: 15px; border-radius: 10px; text-align: center; color: white; margin: 10px 0;">
-                                <h3 style="margin: 0;">{emoji} {disease_class}</h3>
-                                <p style="margin: 5px 0 0 0;">Confidence: {disease_conf:.2f}%</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            if "Healthy" in disease_class:
-                                st.success("✅ Leaf is healthy!")
+                            # Check if confidence is below threshold
+                            if disease_conf < CONFIDENCE_THRESHOLD:
+                                color = "#ffc107"  # Warning color
+                                emoji = "❓"
+                                st.markdown(f"""
+                                <div style="background: {color}; padding: 15px; border-radius: 10px; text-align: center; color: white; margin: 10px 0;">
+                                    <h3 style="margin: 0;">{emoji} Unknown Disease Pattern</h3>
+                                    <p style="margin: 5px 0 0 0;">Confidence: {disease_conf:.2f}% (Below threshold)</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                st.warning("⚠️ This disease pattern is not recognized in our database with high confidence.")
+                                
+                                # Show known diseases list
+                                with st.expander("📋 Known Diseases in Database", expanded=True):
+                                    st.write("Our model is trained on these 7 classes:")
+                                    for d in DISEASE_CLASSES:
+                                        st.write(f"- {d}")
+                                
                             else:
-                                st.error("⚠️ Disease detected! Contact expert.")
+                                color = "#28a745" if "Healthy" in disease_class else "#dc3545"
+                                emoji = "🌿" if "Healthy" in disease_class else "🦠"
+                                
+                                st.markdown(f"""
+                                <div style="background: {color}; padding: 15px; border-radius: 10px; text-align: center; color: white; margin: 10px 0;">
+                                    <h3 style="margin: 0;">{emoji} {disease_class}</h3>
+                                    <p style="margin: 5px 0 0 0;">Confidence: {disease_conf:.2f}%</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                if "Healthy" in disease_class:
+                                    st.success("✅ Leaf is healthy!")
+                                else:
+                                    st.error("⚠️ Disease detected! Contact expert.")
                             
                             # Confidence Bar
+                            bar_color = "#ffc107" if disease_conf < CONFIDENCE_THRESHOLD else color
                             fig3 = go.Figure(go.Bar(
                                 x=['Confidence'],
                                 y=[disease_conf],
                                 text=[f'{disease_conf:.1f}%'],
                                 textposition='outside',
-                                marker_color=color
+                                marker_color=bar_color
                             ))
                             fig3.update_layout(yaxis_range=[0, 100], height=150, showlegend=False)
                             st.plotly_chart(fig3, use_container_width=True)
@@ -308,15 +365,43 @@ with tab2:
 with tab3:
     st.markdown("### 📊 Dataset & Model Statistics")
     
+    # Model Statistics - Updated with correct values
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric(label="📸 Age Dataset", value="2,208", delta="4 Classes")
     with col2:
         st.metric(label="🦠 Disease Dataset", value="5,278", delta="7 Classes")
     with col3:
-        st.metric(label="🏆 Age Accuracy", value="~54%")
+        st.metric(label="🏆 Age Accuracy", value="74%", delta="✅")
     with col4:
-        st.metric(label="🏆 Disease Accuracy", value="~85%")
+        st.metric(label="🏆 Disease Accuracy", value="~85%", delta="✅")
+    
+    # Summary Section
+    st.markdown("---")
+    st.markdown("### 📋 Model Performance Summary")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        <div style="background: #f0f7f0; padding: 20px; border-radius: 12px; border-left: 5px solid #2d5016;">
+            <h4 style="color: #1a3a1a;">🍃 Age Model</h4>
+            <p><strong>Training Accuracy:</strong> 76.2%</p>
+            <p><strong>Validation Accuracy:</strong> 74.0%</p>
+            <p><strong>Classes:</strong> 4 (T1-T4)</p>
+            <p><strong>Architecture:</strong> EfficientNetB0</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div style="background: #f0f7f0; padding: 20px; border-radius: 12px; border-left: 5px solid #dc3545;">
+            <h4 style="color: #1a3a1a;">🦠 Disease Model</h4>
+            <p><strong>Training Accuracy:</strong> 95.1%</p>
+            <p><strong>Validation Accuracy:</strong> 85.0%</p>
+            <p><strong>Classes:</strong> 7</p>
+            <p><strong>Architecture:</strong> DenseNet201</p>
+        </div>
+        """, unsafe_allow_html=True)
     
     st.markdown("---")
     
@@ -365,15 +450,15 @@ with tab4:
     ---
     
     ### 🏆 Models
-    - **Age Model:** EfficientNetB0 (Transfer Learning)
-    - **Disease Model:** DenseNet201 (Transfer Learning)
+    - **Age Model:** EfficientNetB0 (Transfer Learning) - 74% Accuracy
+    - **Disease Model:** DenseNet201 (Transfer Learning) - 85% Accuracy
     
     ---
     
     ### 🛠️ Technology
     - TensorFlow 2.15
-    - Streamlit 1.39.0
-    - Plotly 5.17.0
+    - Streamlit 1.44.1
+    - Plotly 5.18.0
     """)
 
 # ============================================================
@@ -386,4 +471,4 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.caption("🚀 Developed by Afrin Binte Amin")
+st.caption("🚀 Developed by Iostream")

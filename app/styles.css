@@ -79,7 +79,7 @@ p, label, span, div {
 /* ===== BUTTONS (Dark Theme Fixed) ===== */
 .stButton > button {
     background: linear-gradient(135deg, #1f4f1f 0%, #3a7a2a 100%) !important;
-    color: #ffffff !important;  /* স্পষ্ট সাদা টেক্সট */
+    color: #ffffff !important;
     border: none !important;
     border-radius: 60px !important;
     padding: 14px 34px !important;
@@ -245,4 +245,18 @@ p, label, span, div {
 [data-testid="stExpander"] {
     border-radius: 16px !important;
     border: 1px solid rgba(200, 220, 200, 0.3) !important;
+}
+
+/* ===== CAMERA BUTTONS ===== */
+div[data-testid="column"] .stButton > button {
+    padding: 10px 20px !important;
+    font-size: 0.9rem !important;
+}
+
+div[data-testid="column"] .stButton > button:first-child {
+    background: linear-gradient(135deg, #0066cc 0%, #0052a3 100%) !important;
+}
+
+div[data-testid="column"] .stButton > button:last-child {
+    background: linear-gradient(135deg, #cc3333 0%, #a32222 100%) !important;
 }
